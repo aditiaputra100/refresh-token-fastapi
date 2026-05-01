@@ -1,3 +1,4 @@
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 from database import Base
 import pytest
@@ -5,6 +6,14 @@ import pytest
 @pytest.fixture(scope="module")
 async def async_engine():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=True)
+
+    if engine.dialect.name == "sqlite":
+        @event.listens_for(engine.sync_engine, "connect")
+        def _enable_sqlite_foreign_keys(dbapi_connection, connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
+
     yield engine
 
     await engine.dispose()
