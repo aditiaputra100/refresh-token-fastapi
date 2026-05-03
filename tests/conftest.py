@@ -1,6 +1,8 @@
 from sqlalchemy import event
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-from database import Base
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from httpx import AsyncClient, ASGITransport
+from database import Base, get_async_db
+from main import app
 import pytest
 
 @pytest.fixture(scope="module")
@@ -29,3 +31,13 @@ async def async_session(async_engine):
 
     async with async_engine.begin() as conn:
         await conn.run_sync(Base.metadata.drop_all)
+
+@pytest.fixture(scope="function")
+async def client(async_session: AsyncSession):
+    def override_get_async_db():
+        yield async_session
+
+    app.dependency_overrides[get_async_db] = override_get_async_db
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://tests") as ac:
+        yield ac

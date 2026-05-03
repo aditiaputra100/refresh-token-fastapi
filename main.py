@@ -4,10 +4,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from config import settings
 from database import get_async_db
+from routes.auth import auth_router
 
 app = FastAPI(
     debug=settings.MODE
 )
+
+app.include_router(auth_router)
 
 @app.get('/')
 def read_root():
