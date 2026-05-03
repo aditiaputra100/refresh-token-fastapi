@@ -1,6 +1,6 @@
 from datetime import timedelta, datetime
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, UUID
+from sqlalchemy import select, UUID, desc
 from pwdlib import PasswordHash
 from models.user import User, RefreshToken
 from config import settings
@@ -31,9 +31,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
     return encoded_jwt
 
 async def create_refresh_token(user_id: UUID, session: AsyncSession, expires_delta: timedelta | None = None) -> str:
-    stmt = select(RefreshToken).where(RefreshToken.user_id == user_id)
-    result = await session.execute(stmt)
-    existing_refresh_token = result.scalar_one_or_none()
+    find_refresh_token = await get_refresh_tokens_by_user_id(session, user_id)
 
     token = secrets.token_hex(32)
     
@@ -42,21 +40,36 @@ async def create_refresh_token(user_id: UUID, session: AsyncSession, expires_del
     else:
         expire = datetime.now() + timedelta(days=7)
 
-    if existing_refresh_token:
-        if existing_refresh_token.revoked_at is not None:
-            raise PermissionError("Unauthorized")
-
-        existing_refresh_token.token = token
-        existing_refresh_token.expires_at = expire
+    if find_refresh_token:
+        find_refresh_token.token = token
+        find_refresh_token.expires_at = expire
 
         await session.commit()
-        await session.refresh(existing_refresh_token)
+        await session.refresh(find_refresh_token)
 
-        return existing_refresh_token.token
+        return find_refresh_token.token
 
     refresh_token = RefreshToken(user_id=user_id, token=token, expires_at=expire)
 
     session.add(refresh_token)
+    await session.commit()
+    await session.refresh(refresh_token)
+
+    return refresh_token.token
+
+async def rotate_refresh_token(token: str, session: AsyncSession, expires_delta: timedelta | None = None) -> str:
+    refresh_token = await get_refresh_token(session, token)
+
+    if not refresh_token:
+        raise PermissionError("Unauthorized")
+    
+    refresh_token.token = secrets.token_hex(32)
+
+    if expires_delta:
+        refresh_token.expires_at = datetime.now() + expires_delta
+    else:
+        refresh_token.expires_at = datetime.now() + timedelta(days=7)
+
     await session.commit()
     await session.refresh(refresh_token)
 
@@ -71,14 +84,28 @@ async def create(session: AsyncSession, user: User) -> User:
     return user
 
 async def get_user_by_username(session: AsyncSession, username: str) -> User | None:
-    result = await session.execute(select(User).where(User.username == username))
+    stmt = select(User).where(User.username == username)
+    result = await session.execute(stmt)
     user = result.scalar_one_or_none()
 
     return user
 
 async def get_refresh_token(session: AsyncSession, token: str) -> RefreshToken | None:
-    result = await session.execute(select(RefreshToken).where(RefreshToken.token == token))
+    stmt = select(RefreshToken).where(RefreshToken.token == token, RefreshToken.revoked_at.is_(None))
+    result = await session.execute(stmt)
     refresh_token = result.scalar_one_or_none()
+
+    return refresh_token
+
+async def get_refresh_tokens_by_user_id(session: AsyncSession, user_id: UUID) -> RefreshToken | None:
+    stmt = (
+        select(RefreshToken)
+        .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
+        .order_by(desc(RefreshToken.updated_at), desc(RefreshToken.created_at), desc(RefreshToken.id))
+        .limit(1)
+    )
+    result = await session.execute(stmt)
+    refresh_token = result.scalars().first()
 
     return refresh_token
 

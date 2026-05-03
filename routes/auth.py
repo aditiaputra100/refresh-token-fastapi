@@ -16,6 +16,7 @@ from services.user import (
     create_refresh_token,
     get_user_by_username,
     get_refresh_token,
+    rotate_refresh_token,
     revoke_refresh_token)
 
 auth_router = APIRouter(tags=["auth"])
@@ -83,9 +84,6 @@ async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], asyn
         refresh_token_expires = timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
         refresh_token = await create_refresh_token(user.id, async_session, expires_delta=refresh_token_expires)
 
-    except PermissionError:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
     except Exception:
         await async_session.rollback()
 
@@ -124,7 +122,7 @@ async def refresh_token(async_session: Annotated[AsyncSession, Depends(get_async
 
     try:
         refresh_token_expires = timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-        new_refresh_token = await create_refresh_token(find_refresh_token.user_id, async_session, expires_delta=refresh_token_expires)
+        new_refresh_token = await rotate_refresh_token(find_refresh_token.token, async_session, expires_delta=refresh_token_expires)
 
     except PermissionError:
         raise HTTPException(status_code=401, detail="Unauthorized")
