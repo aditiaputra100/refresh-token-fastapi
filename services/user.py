@@ -1,6 +1,6 @@
 from datetime import timedelta, datetime
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, UUID
+from sqlalchemy import select, UUID, desc
 from pwdlib import PasswordHash
 from models.user import User, RefreshToken
 from config import settings
@@ -91,16 +91,21 @@ async def get_user_by_username(session: AsyncSession, username: str) -> User | N
     return user
 
 async def get_refresh_token(session: AsyncSession, token: str) -> RefreshToken | None:
-    stmt = select(RefreshToken).where(RefreshToken.token == token, RefreshToken.revoked_at == None)
+    stmt = select(RefreshToken).where(RefreshToken.token == token, RefreshToken.revoked_at.is_(None))
     result = await session.execute(stmt)
     refresh_token = result.scalar_one_or_none()
 
     return refresh_token
 
 async def get_refresh_tokens_by_user_id(session: AsyncSession, user_id: UUID) -> RefreshToken | None:
-    stmt = select(RefreshToken).where(RefreshToken.user_id == user_id, RefreshToken.revoked_at == None)
+    stmt = (
+        select(RefreshToken)
+        .where(RefreshToken.user_id == user_id, RefreshToken.revoked_at.is_(None))
+        .order_by(desc(RefreshToken.updated_at), desc(RefreshToken.created_at), desc(RefreshToken.id))
+        .limit(1)
+    )
     result = await session.execute(stmt)
-    refresh_token = result.scalar_one_or_none()
+    refresh_token = result.scalars().first()
 
     return refresh_token
 
