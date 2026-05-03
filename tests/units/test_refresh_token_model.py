@@ -44,7 +44,7 @@ class TestRefreshTokenModel:
 
         assert refresh_token.token == "test_token"
         assert refresh_token.user_id == user.id
-        assert refresh_token.expired_at > datetime.now()
+        assert refresh_token.expires_at > datetime.now()
 
     def test_user_and_refresh_token_relationship(self):
         user_id = uuid.uuid4()
@@ -84,4 +84,4 @@ class TestRefreshTokenModel:
 
         assert refresh_token.user_id == user.id
         assert refresh_token.token == "test_token"
-        assert refresh_token.expired_at > datetime.now()
+        assert refresh_token.expires_at > datetime.now()
