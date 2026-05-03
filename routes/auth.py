@@ -55,7 +55,7 @@ async def register(user_data: Annotated[UserRegisteration, Form()], async_sessio
         key="refresh_token", 
         value=refresh_token, 
         httponly=True, 
-        max_age=int((datetime.now() + refresh_token_expires).timestamp()))
+        max_age=int(refresh_token_expires.total_seconds()))
     
     return {
         "access_token": access_token,
@@ -83,6 +83,9 @@ async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], asyn
         refresh_token_expires = timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
         refresh_token = await create_refresh_token(user.id, async_session, expires_delta=refresh_token_expires)
 
+    except PermissionError:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
     except Exception:
         await async_session.rollback()
 
@@ -92,7 +95,7 @@ async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], asyn
         key="refresh_token", 
         value=refresh_token, 
         httponly=True, 
-        max_age=int((datetime.now() + refresh_token_expires).timestamp()))
+        max_age=int(refresh_token_expires.total_seconds()))
     
     return {
         "access_token": access_token,
@@ -119,14 +122,22 @@ async def refresh_token(async_session: Annotated[AsyncSession, Depends(get_async
     create_access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(data={"sub": find_refresh_token.user.email}, expires_delta=create_access_token_expires)
 
-    refresh_token_expires = timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
-    new_refresh_token = await create_refresh_token(find_refresh_token.user_id, async_session, expires_delta=refresh_token_expires)
+    try:
+        refresh_token_expires = timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+        new_refresh_token = await create_refresh_token(find_refresh_token.user_id, async_session, expires_delta=refresh_token_expires)
+
+    except PermissionError:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    except Exception:
+        await async_session.rollback()
+        raise HTTPException(status_code=500, detail="Failed to create refresh token")
 
     response.set_cookie(
         key="refresh_token", 
         value=new_refresh_token, 
         httponly=True, 
-        max_age=int((datetime.now() + refresh_token_expires).timestamp()))
+        max_age=int(refresh_token_expires.total_seconds()))
 
     return {
         'access_token': access_token,

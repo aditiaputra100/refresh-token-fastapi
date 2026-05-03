@@ -43,6 +43,9 @@ async def create_refresh_token(user_id: UUID, session: AsyncSession, expires_del
         expire = datetime.now() + timedelta(days=7)
 
     if existing_refresh_token:
+        if existing_refresh_token.revoked_at is not None:
+            raise PermissionError("Unauthorized")
+
         existing_refresh_token.token = token
         existing_refresh_token.expires_at = expire
 

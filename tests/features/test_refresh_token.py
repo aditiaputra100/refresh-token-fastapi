@@ -56,6 +56,12 @@ class TestRefreshToken:
     async def test_revoke_refresh_token(self, client: AsyncClient, async_session: AsyncSession):
         await TestLogin().test_login_with_existing_user(client=client)
 
+        endpoint_refresh = await client.post("/refresh")
+        assert endpoint_refresh.status_code == 200
+
+        refresh_token = endpoint_refresh.cookies.get("refresh_token")
+        assert refresh_token is not None
+
         response = await client.post("/logout")
 
         assert response.status_code == 204
@@ -67,3 +73,8 @@ class TestRefreshToken:
 
         assert len(refresh_tokens) == 1
         assert refresh_tokens[0].revoked_at is not None
+
+        new_response = await client.post("/refresh", cookies={"refresh_token": refresh_token})
+
+        assert new_response.status_code == 401
+        assert new_response.json() == {"detail": "Unauthorized"}
