@@ -10,8 +10,10 @@ from routes.user import user_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    async with async_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+
+    if settings.MODE:
+        async with async_engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
 
     yield
     
