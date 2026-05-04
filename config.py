@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import BaseModel
+from typing import Literal
 import sys
 
 class DatabaseSettings(BaseModel):
@@ -20,6 +21,9 @@ class Settings(BaseSettings):
     ALGORITHM: str = 'HS256'
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    COOKIE_SECURE: bool = False
+    COOKIE_SAMESITE: Literal['lax', 'strict', 'none'] = 'lax'
+    COOKIE_PATH: str = '/'
     DATABASE: DatabaseSettings = DatabaseSettings()
 
 

@@ -1,14 +1,19 @@
 from datetime import timedelta, datetime
+from fastapi.security import OAuth2PasswordBearer
+from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, UUID, desc
 from pwdlib import PasswordHash
+from typing import Annotated
 from models.user import User, RefreshToken
 from config import settings
+from database import get_async_db
 import jwt
 import secrets
 
 
 password_hash = PasswordHash.recommended()
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login", auto_error=False)
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return password_hash.verify(plain_password, hashed_password)
@@ -90,6 +95,13 @@ async def get_user_by_username(session: AsyncSession, username: str) -> User | N
 
     return user
 
+async def get_user_by_email(session: AsyncSession, email: str) -> User | None:
+    stmt = select(User).where(User.email == email)
+    result = await session.execute(stmt)
+    user = result.scalar_one_or_none()
+
+    return user
+
 async def get_refresh_token(session: AsyncSession, token: str) -> RefreshToken | None:
     stmt = select(RefreshToken).where(RefreshToken.token == token, RefreshToken.revoked_at.is_(None))
     result = await session.execute(stmt)
@@ -120,3 +132,30 @@ async def revoke_refresh_token(session: AsyncSession, token: str) -> bool:
     await session.commit()
 
     return True
+
+async def get_current_user(
+    token: Annotated[str | None, Depends(oauth2_scheme)],
+    session: Annotated[AsyncSession, Depends(get_async_db)],
+) -> User | None:
+    if not token:
+        return None
+
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        email: str = payload.get("sub") # type: ignore
+
+        if email is None:
+            return None
+
+    except jwt.PyJWTError:
+        return None
+
+    user = await get_user_by_email(session, email)
+
+    if user is None:
+        return None
+
+    return user
+
+async def get_current_active_user(current_user: Annotated[User | None, Depends(get_current_user)]) -> User | None:
+    return current_user

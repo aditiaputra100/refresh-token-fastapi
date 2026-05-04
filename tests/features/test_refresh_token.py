@@ -2,16 +2,15 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from models.user import RefreshToken
-from test_login import TestLogin
 import pytest
+
+from tests.features.helpers import get_cookie_header, login_user, register_user
 
 
 class TestRefreshToken:
     
     @pytest.mark.anyio
     async def test_refresh_token_is_none(self, client: AsyncClient):
-        await TestLogin().test_login_without_existing_user(client=client)
-
         response = await client.post("/refresh")
         
         assert response.status_code == 401
@@ -19,7 +18,6 @@ class TestRefreshToken:
     
     @pytest.mark.anyio
     async def test_refresh_token_is_invalid(self, client: AsyncClient):
-        await TestLogin().test_login_without_existing_user(client=client)
         response = await client.post("/refresh", cookies={"refresh_token": "invalidtoken"})
 
         assert response.status_code == 401
@@ -27,12 +25,17 @@ class TestRefreshToken:
 
     @pytest.mark.anyio
     async def test_refresh_token_is_valid(self, client: AsyncClient, async_session: AsyncSession):
-        await TestLogin().test_login_with_existing_user(client=client)
+        await register_user(client)
+        login_response = await login_user(client)
+
+        assert login_response.status_code == 200
+        assert login_response.json()["access_token"] is not None
 
         response = await client.post("/refresh")
 
         assert response.status_code == 200
-        assert "access_token" in response.json()
+        assert response.json()["access_token"] is not None
+        assert response.json()["token_type"] == "bearer"
 
         refresh_token = response.cookies.get("refresh_token")
 
@@ -54,7 +57,8 @@ class TestRefreshToken:
         
     @pytest.mark.anyio
     async def test_revoke_refresh_token(self, client: AsyncClient, async_session: AsyncSession):
-        await TestLogin().test_login_with_existing_user(client=client)
+        await register_user(client)
+        await login_user(client)
 
         endpoint_refresh = await client.post("/refresh")
         assert endpoint_refresh.status_code == 200
@@ -78,3 +82,22 @@ class TestRefreshToken:
 
         assert new_response.status_code == 401
         assert new_response.json() == {"detail": "Unauthorized"}
+
+    @pytest.mark.anyio
+    async def test_refresh_cookie_attributes(self, client: AsyncClient):
+        await register_user(client)
+        login_response = await login_user(client)
+
+        cookie_header = get_cookie_header(login_response, "refresh_token")
+
+        assert cookie_header
+        assert "httponly" in cookie_header.lower()
+        assert "max-age=" in cookie_header.lower()
+        assert "access_token=" not in cookie_header.lower()
+
+        refresh_response = await client.post("/refresh")
+        refresh_cookie_header = get_cookie_header(refresh_response, "refresh_token")
+
+        assert refresh_cookie_header
+        assert "httponly" in refresh_cookie_header.lower()
+        assert "access_token=" not in refresh_cookie_header.lower()

@@ -1,15 +1,15 @@
 from datetime import timedelta, datetime
 from fastapi import APIRouter, Cookie, Depends, HTTPException, Form, Response
-from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
-from typing import Annotated
+from typing import Annotated, Literal, cast
 from config import settings
 from database import get_async_db
 from models.user import User
 from schemas.user import UserRegisteration
 from services.user import (
-    create, 
+    create,
     get_password_hash, 
     verify_password,
     create_access_token, 
@@ -20,8 +20,19 @@ from services.user import (
     revoke_refresh_token)
 
 auth_router = APIRouter(tags=["auth"])
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login", refreshUrl="refresh")
+COOKIE_SAMESITE = cast(Literal["lax", "strict", "none"], settings.COOKIE_SAMESITE.lower())
 
+
+def set_refresh_cookie(response: Response, refresh_token: str, max_age: int) -> None:
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        max_age=max_age,
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
+        path=settings.COOKIE_PATH,
+    )
 
 @auth_router.post("/register", status_code=201)
 async def register(user_data: Annotated[UserRegisteration, Form()], async_session: Annotated[AsyncSession, Depends(get_async_db)], response: Response):
@@ -52,14 +63,11 @@ async def register(user_data: Annotated[UserRegisteration, Form()], async_sessio
 
         raise HTTPException(status_code=500, detail="Failed to create refresh token")
     
-    response.set_cookie(
-        key="refresh_token", 
-        value=refresh_token, 
-        httponly=True, 
-        max_age=int(refresh_token_expires.total_seconds()))
-    
+    set_refresh_cookie(response, refresh_token, int(refresh_token_expires.total_seconds()))
+
     return {
         "access_token": access_token,
+        "token_type": "bearer",
         "user": {
             "username": user.username,
             "email": user.email,
@@ -89,14 +97,11 @@ async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], asyn
 
         raise HTTPException(status_code=500, detail="Failed to create refresh token")
     
-    response.set_cookie(
-        key="refresh_token", 
-        value=refresh_token, 
-        httponly=True, 
-        max_age=int(refresh_token_expires.total_seconds()))
-    
+    set_refresh_cookie(response, refresh_token, int(refresh_token_expires.total_seconds()))
+
     return {
         "access_token": access_token,
+        "token_type": "bearer",
         "user": {
             "username": user.username,
             "email": user.email,
@@ -104,7 +109,8 @@ async def login(form_data: Annotated[OAuth2PasswordRequestForm, Depends()], asyn
         }
     }
 
-@auth_router.post("/refresh")
+@auth_router.post(
+        "/refresh")
 async def refresh_token(async_session: Annotated[AsyncSession, Depends(get_async_db)], response: Response, refresh_token: Annotated[str | None, Cookie()] = None):
     if not refresh_token:
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -117,8 +123,8 @@ async def refresh_token(async_session: Annotated[AsyncSession, Depends(get_async
     if find_refresh_token.expires_at < datetime.now():
         raise HTTPException(status_code=401, detail="Unauthorized")
     
-    create_access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    access_token = create_access_token(data={"sub": find_refresh_token.user.email}, expires_delta=create_access_token_expires)
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(data={"sub": find_refresh_token.user.email}, expires_delta=access_token_expires)
 
     try:
         refresh_token_expires = timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
@@ -131,22 +137,21 @@ async def refresh_token(async_session: Annotated[AsyncSession, Depends(get_async
         await async_session.rollback()
         raise HTTPException(status_code=500, detail="Failed to create refresh token")
 
-    response.set_cookie(
-        key="refresh_token", 
-        value=new_refresh_token, 
-        httponly=True, 
-        max_age=int(refresh_token_expires.total_seconds()))
+    set_refresh_cookie(response, new_refresh_token, int(refresh_token_expires.total_seconds()))
 
     return {
-        'access_token': access_token,
-        'user': {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": {
             "username": find_refresh_token.user.username,
             "email": find_refresh_token.user.email,
             "full_name": find_refresh_token.user.full_name
         }
     }
 
-@auth_router.post("/logout", status_code=204)
+@auth_router.post(
+        "/logout",
+        status_code=204)
 async def logout(async_session: Annotated[AsyncSession, Depends(get_async_db)], response: Response, refresh_token: Annotated[str | None, Cookie()] = None) -> None:
     if not refresh_token:
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -156,4 +161,10 @@ async def logout(async_session: Annotated[AsyncSession, Depends(get_async_db)], 
     if not revoke:
         raise HTTPException(status_code=401, detail="Unauthorized")
     
-    response.delete_cookie(key="refresh_token", secure=True, httponly=True)
+    response.delete_cookie(
+        key="refresh_token",
+        httponly=True,
+        secure=settings.COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
+        path=settings.COOKIE_PATH,
+    )
