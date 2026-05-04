@@ -19,6 +19,7 @@ Project ini dibuat untuk mempelajari bagaimana access token dan refresh token be
 - Login user
 - Refresh access token menggunakan refresh token
 - Logout dan revoke refresh token
+- Current user endpoint dengan access token di Authorization header
 - Health check endpoint
 
 ## Struktur Endpoint
@@ -27,7 +28,14 @@ Project ini dibuat untuk mempelajari bagaimana access token dan refresh token be
 - `POST /login`
 - `POST /refresh`
 - `POST /logout`
+- `GET /users/me`
 - `GET /health`
+
+## Catatan Auth
+
+- Access token dikirim di response body sebagai `access_token` dan dipakai client dengan header `Authorization: Bearer <token>`.
+- Refresh token tetap disimpan di HttpOnly cookie.
+- Endpoint `GET /users/me` membaca bearer token dari header, bukan cookie.
 
 ## Prasyarat
 
